@@ -9,3 +9,6 @@ reapings:
 raw.json: reapings/*/*.xlsx
 	ls reapings/*/*.xlsx | parallel venv/bin/python chew.py > raw.json || true
 	test -f raw.json
+
+records.json: raw.json
+	venv/bin/python digest.py raw.json -o records.json

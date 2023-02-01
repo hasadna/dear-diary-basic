@@ -3,6 +3,7 @@ import datetime
 from dateutil import parser as dateutil_parser
 import json
 import re
+import sys
 
 from datetime import datetime, date
 import locale
@@ -10,7 +11,7 @@ import locale
 def fail_silently(func):
     def wrapper(row, *args, **kwargs):
         try:
-            func(row, *args, **kwargs)
+            return func(row, *args, **kwargs)
         except Exception as e:
             # TODO log?
             print(json.dumps(str(e)))
@@ -64,21 +65,32 @@ def start_value(row):
     res = (
         extract_date(row, postfix="Start", hour_prefix="Time", date_prefix="Date", is_start=True) or
         extract_date(row, postfix="התחלה", hour_prefix="שעת", date_prefix="תאריך", is_start=True) or
+        extract_date(row, postfix="התחלה", hour_prefix="שעת", date_prefix="יום", is_start=True) or
         extract_date(row, postfix="תאריך ושעת התחלה", hour_prefix="", date_prefix="", is_start=True)
     )
     assert res
+    return res
 
 
 
 @fail_silently
 def end_value(row):
-    pass
+    res = (
+        extract_date(row, postfix="End", hour_prefix="Time", date_prefix="Date", is_start=False) or
+        extract_date(row, postfix="סיום", hour_prefix="שעת", date_prefix="תאריך", is_start=False) or
+        extract_date(row, postfix="סוף", hour_prefix="שעת", date_prefix="תאריך", is_start=False) or
+        extract_date(row, postfix="סוף", hour_prefix="שעת", date_prefix="תאריך התחלה", is_start=False) or
+        None
+    )
+    assert res
+    return res
 
 ######################3
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("raw_filename", type=argparse.FileType('r'))
+    parser.add_argument("-o", "--output", type=argparse.FileType('w'), default=sys.stdout)
     return parser.parse_args()
 
 def parse_row(row):
@@ -94,13 +106,9 @@ def parse_row(row):
         '64eefcdd-63a8-4c75-9d8b-a77a65b6cd84',
         '4ad91d4a-e1d0-47b0-a26e-f7a2dcb77761',
         '95cde5e1-2c78-45ad-baec-1afe22baa40f',
+        'b903d50e-b58f-4c41-8d0f-664a621caeee',
     ]:
         return
-    """
-    # Debuggin
-    if not row['resource_id'] == '937b6514-559f-42a6-89d2-8ac2993d7bae':
-        return
-    """
 
     # Fixing typos
     new_row = {}
@@ -110,19 +118,23 @@ def parse_row(row):
     row=new_row
 
     dic = {
-        'start': start_value(row),
-        # 'end': end_value(row),
+        'resource_id': row['resource_id'],
+        'start': str(start_value(row)),
+        'end': str(end_value(row)),
     }
 
-    """
-    if any((v is None for v in dic.values())):
-        print(row, dic)
-    """
+    if any((not v for v in dic.values())):
+        return None
+
+    return dic
 
 def main():
     args = parse_args()
     for row_raw in args.raw_filename:
         row = json.loads(row_raw)
-        parse_row(row)
+        res = parse_row(row)
+        if res:
+            print(json.dumps(res), file=args.output)
+
 
 main()
