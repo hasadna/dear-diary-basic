@@ -12,6 +12,8 @@ class ColumnFinder:
     @staticmethod
     def first_match(row, possible_keys):
         for key in possible_keys:
+            key = key.strip()
+            key = re.sub("\s"," ", key)
             if key in row:
                 return row[key]
         return None
@@ -35,15 +37,29 @@ class ColumnFinder:
             "שעת סיום", "סיום", "סוף",
             "תאריך ושעת סיום",
         ])
-        
 
     @classmethod
     def end_date(cls, row):
-        # TODO complete
         return cls.first_match(row, [
             "תאריך סיום", "תאריך", "תאריך ","תאריך וסיום",
             "תאריך סוף"
         ])
+
+    @classmethod
+    def subject(cls, row):
+        return cls.first_match(row, [
+            "נושא", "Subject", "נושא הפגישה", "הנושא",
+            "Title",
+        ])
+
+    @classmethod
+    def why_missing(cls, row):
+        black_keys = [k for k in row.keys() if "השחרה" in k]
+        if black_keys:
+            return row[black_keys[0]]
+        return None
+
+
 
 
 
@@ -66,13 +82,19 @@ def handle_errors(quiet:bool=True, allow_empties:bool=True):
 class ColumnParser:
     @staticmethod
     def parse_date(s):
-        # TODO complete
         MONTHS = {
             "ינו": "Jan",
+            "פבר": "Feb",
             "מרץ": "Mar",
             "אפר": "Apr",
             "מאי": "May",
             "יונ": "Jun",
+            "יול": "Jul",
+            "אוג": "Aug",
+            "ספט": "Sep",
+            "אוק": "Oct",
+            "נוב": "Nov",
+            "דצמ": "Dec",
         }
         for mon,sub in MONTHS.items():
             s = re.sub(r"\b"+re.escape(mon)+r"\b", sub, s)
@@ -129,14 +151,28 @@ class ColumnParser:
 
         return None
 
+    @classmethod
+    @handle_errors(quiet=False, allow_empties=True)
+    def subject(cls, row):
+        subject = ColumnFinder.subject(row)
+        if subject:
+            return subject
+        why_missing = ColumnFinder.why_missing(row)
+        if why_missing:
+            # TODO report reason
+            return "CENSORED"
+        return None
+
 
 
 class RowParser:
     @staticmethod
     def parse_row(row):
         return {
+            'reource_id': row['resource_id'],
             'start': str(ColumnParser.start_value(row)),
             'end': str(ColumnParser.end_value(row)),
+            'subject': ColumnParser.subject(row),
         }
 
 
