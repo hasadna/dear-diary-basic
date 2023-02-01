@@ -8,72 +8,139 @@ import sys
 from datetime import datetime, date
 import locale
 
-def fail_silently(func):
-    def wrapper(row, *args, **kwargs):
-        try:
-            return func(row, *args, **kwargs)
-        except Exception as e:
-            # TODO log?
-            print(json.dumps(str(e)))
-            print(json.dumps(row))
-            pass
-    return wrapper
+class ColumnFinder:
+    @staticmethod
+    def first_match(row, possible_keys):
+        for key in possible_keys:
+            if key in row:
+                return row[key]
+        return None
 
-def parse_date(s):
-    MONTHS = {
-        "ינו": "Jan",
-        "מרץ": "Mar",
-        "אפר": "Apr",
-        "מאי": "May",
-        "יונ": "Jun",
-    }
-    for mon,sub in MONTHS.items():
-        s = re.sub(r"\b"+re.escape(mon)+r"\b", sub, s)
-    s = re.sub("[א-ת]{3} \d+","",s)
-    s = re.sub("[א-ת]+","",s)
-    return dateutil_parser.parse(s)
+    @classmethod
+    def start_time(cls, row):
+        return cls.first_match(row, [
+            "Start", "Start Time",
+            "שעת התחלה", "התחלה",
+            "שעה", "משעה", "תאריך ושעת התחלה", "מזמן",
+        ])
 
-def extract_date(row, postfix, hour_prefix, date_prefix, is_start:bool):
-    if re.match("[a-zA-Z]+",postfix):
-        date_postfix = f"{postfix} {date_prefix}"
-        hour_postfix = f"{postfix} {hour_prefix}"
-    else:
-        date_postfix = f"{date_prefix} {postfix}"
-        hour_postfix = f"{hour_prefix} {postfix}"
+    @classmethod
+    def start_date(cls, row):
+        return cls.first_match(row, ["תאריך התחלה", "Start Date", "יום התחלה","תאריך", "יום"])
 
-    bare = row.get(postfix)
-    date = row.get(f"{date_prefix} ") or row.get(date_prefix) or row.get(date_postfix)
-    hour = row.get(hour_postfix)
+    @classmethod
+    def end_time(cls, row):
+        return cls.first_match(row, [
+            "End", "End Time",
+            "שעת סיום", "סיום", "סוף",
+            "תאריך ושעת סיום",
+        ])
+        
 
-    if hour and len(hour) > 10:
-        return parse_date(hour)
-    if hour and date:
-        date = date.replace("00:00:00","")
-        return parse_date(f"{hour} {date}")
-    if bare and date:
-        date = date.replace("00:00:00","")
-        return parse_date(f"{bare} {date}")
-    if bare:
-        return parse_date(bare)
-    if date:
-        return parse_date(date)
-    return None
-
-
-@fail_silently
-def start_value(row):
-    res = (
-        extract_date(row, postfix="Start", hour_prefix="Time", date_prefix="Date", is_start=True) or
-        extract_date(row, postfix="התחלה", hour_prefix="שעת", date_prefix="תאריך", is_start=True) or
-        extract_date(row, postfix="התחלה", hour_prefix="שעת", date_prefix="יום", is_start=True) or
-        extract_date(row, postfix="תאריך ושעת התחלה", hour_prefix="", date_prefix="", is_start=True)
-    )
-    assert res
-    return res
+    @classmethod
+    def end_date(cls, row):
+        # TODO complete
+        return cls.first_match(row, [
+            "תאריך סיום", "תאריך", "תאריך ","תאריך וסיום",
+            "תאריך סוף"
+        ])
 
 
 
-@fail_silently
+def handle_errors(quiet:bool=True, allow_empties:bool=True):
+    def wrapper2(func):
+        def wrapper(cls, row, *args, **kwargs):
+            try:
+                ret = func(cls, row, *args, **kwargs)
+                if not allow_empties:
+                    assert ret, "No return value"
+                return ret
+            except Exception as e:
+                # TODO log?
+                if not quiet:
+                    print(json.dumps(str(e)))
+                    print(json.dumps(row))
+        return wrapper
+    return wrapper2
+
+class ColumnParser:
+    @staticmethod
+    def parse_date(s):
+        # TODO complete
+        MONTHS = {
+            "ינו": "Jan",
+            "מרץ": "Mar",
+            "אפר": "Apr",
+            "מאי": "May",
+            "יונ": "Jun",
+        }
+        for mon,sub in MONTHS.items():
+            s = re.sub(r"\b"+re.escape(mon)+r"\b", sub, s)
+        s = re.sub("[א-ת]{3} \d+","",s)
+        s = re.sub("[א-ת]+","",s)
+        return dateutil_parser.parse(s)
+
+    @classmethod
+    @handle_errors(quiet=True)
+    def start_value(cls, row):
+        start_time = ColumnFinder.start_time(row)
+        start_date = ColumnFinder.start_date(row)
+
+        # Date being xx-xx/xx/xx
+        if start_date and start_date.count("-") == 1:
+            start_block, end_block = start_date.split("-")
+            start_date = start_block + end_block[len(start_block):]
+
+        if start_date and re.match(r"\*+", start_date):
+            end_date = ColumnFinder.end_date(row)
+            start_date = re.sub("\d{2}:\d{2}:\d{2}", "",end_date)
+
+
+        if start_time and len(start_time) > 10:
+            return cls.parse_date(start_time)
+        if start_time and start_date:
+            start_date = start_date.replace("00:00:00","")
+            return cls.parse_date(f"{start_time} {start_date}")
+        return None
+
+    @classmethod
+    @handle_errors(quiet=False, allow_empties=True)
+    def end_value(cls, row):
+        end_time = ColumnFinder.end_time(row)
+        end_date = ColumnFinder.end_date(row)
+
+        if end_time and not end_date and (start_date:=ColumnFinder.start_date(row)):
+            start_date = start_date.replace("00:00:00","")
+            end_date = start_date
+
+        # Date being xx-xx/xx/xx
+        if end_date and end_date.count("-") == 1:
+            start_block, end_block = end_date.split("-")
+            end_date = end_block
+
+
+        if end_time and len(end_time) > 10:
+            return cls.parse_date(end_time)
+        if end_time and end_date:
+            end_time = end_time.replace("00:00:00","")
+            return cls.parse_date(f"{end_time} {end_date}")
+        if not end_time and end_date:
+            return cls.parse_date(end_date)
+
+        return None
+
+
+
+class RowParser:
+    @staticmethod
+    def parse_row(row):
+        return {
+            'start': str(ColumnParser.start_value(row)),
+            'end': str(ColumnParser.end_value(row)),
+        }
+
+
+@handle_errors
 def end_value(row):
     res = (
         extract_date(row, postfix="End", hour_prefix="Time", date_prefix="Date", is_start=False) or
@@ -117,11 +184,7 @@ def parse_row(row):
         new_row[k]=v
     row=new_row
 
-    dic = {
-        'resource_id': row['resource_id'],
-        'start': str(start_value(row)),
-        'end': str(end_value(row)),
-    }
+    dic = RowParser.parse_row(row)
 
     if any((not v for v in dic.values())):
         return None

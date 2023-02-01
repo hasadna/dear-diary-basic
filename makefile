@@ -3,12 +3,12 @@ init:
 	venv/bin/pip install -r requirements.txt
 freeze:
 	venv/bin/pip freeze >requirements.txt
-reapings:
-	curl 'https://www.odata.org.il/api/3/action/resource_search?query=name:יומן' -s | jq '.result.results[] | select(.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") | "mkdir -p reapings/\(.id) && curl -s \(.url) -o \"reapings/\(.id)/\(.name)\""' -r | parallel
+output/reapings:
+	curl 'https://www.odata.org.il/api/3/action/resource_search?query=name:יומן' -s | jq '.result.results[] | select(.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") | "mkdir -p output/reapings/\(.id) && curl -s \(.url) -o \"output/reapings/\(.id)/\(.name)\""' -r | parallel
 
-raw.json: reapings/*/*.xlsx
-	ls reapings/*/*.xlsx | parallel venv/bin/python chew.py > raw.json || true
-	test -f raw.json
+output/raw.json: output/reapings/*/*.xlsx
+	ls reapings/*/*.xlsx | parallel venv/bin/python chew.py > output/raw.json || true
+	test -f output/raw.json
 
-records.json: raw.json
-	venv/bin/python digest.py raw.json -o records.json
+output/records.json: output/raw.json
+	venv/bin/python digest.py output/raw.json -o output/records.json

@@ -1,0 +1,1 @@
+Some appointments don't have an end. We will need to peek into the next appointment and collect the start of it as a hint, maybe
